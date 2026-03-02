@@ -4,14 +4,15 @@ import RPi.GPIO as GPIO
 class R2R_ADC:
     def __init__(self, dynamic_range, compare_time=0.01, verbose=False):
         self.dynamic_range = dynamic_range
-        self.verbose = verbose
         self.compare_time = compare_time
+        self.verbose = verbose
 
         self.bits_gpio = [26, 20, 19, 16, 13, 12, 25, 11]
         self.comp_gpio = 21
 
-        self.calibration_offset = 0
-        self.calibrated = False
+    
+        self.scale = None
+        self.offset = None
 
         GPIO.setmode(GPIO.BCM)
         GPIO.setup(self.bits_gpio, GPIO.OUT, initial=0)
@@ -20,12 +21,12 @@ class R2R_ADC:
     
     def __del__(self):
         try:
-            GPIO.output(self.bits_gpio, [0] * len(self.bits_gpio))
+            GPIO.output(self.bits_gpio, [0]*len(self.bits_gpio))
             GPIO.cleanup()
         except:
             pass
 
-
+    
     def number_to_dac(self, number):
         bits_count = len(self.bits_gpio)
 
@@ -37,7 +38,7 @@ class R2R_ADC:
         if self.verbose:
             print(f"DAC <= {number}")
 
-
+    
     def sequential_counting_adc(self):
         max_code = (1 << len(self.bits_gpio)) - 1
 
@@ -45,34 +46,28 @@ class R2R_ADC:
             self.number_to_dac(number)
             time.sleep(self.compare_time)
 
-            comp_state = GPIO.input(self.comp_gpio)
-
-            
-            if comp_state == 1:
+            if GPIO.input(self.comp_gpio) == 1:
                 return number
 
         return max_code
 
     
-    def calibrate_dynamic_range(self, true_voltage, measured_code):
-        max_code = (1 << len(self.bits_gpio)) - 1
-
-        if measured_code == 0:
+    def calibrate_two_point(self, code1, voltage1, code2, voltage2):
+        if code2 == code1:
             return
 
-        self.dynamic_range = true_voltage * max_code / measured_code
-        self.calibrated = True
+        self.scale = (voltage2 - voltage1) / (code2 - code1)
+        self.offset = voltage1 - self.scale * code1
 
 
     def get_sc_voltage(self):
         code = self.sequential_counting_adc()
 
+        if self.scale is not None and self.offset is not None:
+            return self.scale * code + self.offset
+
         max_code = (1 << len(self.bits_gpio)) - 1
-
-        voltage = (code / max_code) * self.dynamic_range
-        voltage += self.calibration_offset
-
-        return voltage
+        return (code / max_code) * self.dynamic_range
 
 
 if __name__ == "__main__":
