@@ -2,22 +2,18 @@ import time
 import RPi.GPIO as GPIO
 
 class R2R_ADC:
-    def __init__(self, dynamic_range, compare_time=0.01, verbose=False):
+    def __init__(self, dynamic_range=2.73, compare_time=0.01, verbose=False):
         self.dynamic_range = dynamic_range
         self.compare_time = compare_time
         self.verbose = verbose
 
+        
         self.bits_gpio = [26, 20, 19, 16, 13, 12, 25, 11]
         self.comp_gpio = 21
-
-      
-        self.scale = None
-        self.offset = None
 
         GPIO.setmode(GPIO.BCM)
         GPIO.setup(self.bits_gpio, GPIO.OUT, initial=0)
         GPIO.setup(self.comp_gpio, GPIO.IN)
-
 
     def __del__(self):
         try:
@@ -28,12 +24,8 @@ class R2R_ADC:
 
  
     def number_to_dac(self, number):
-        bits_count = len(self.bits_gpio)
-
-        bits = [(number >> i) & 1 for i in range(bits_count)]
-        gpio_values = list(reversed(bits))
-
-        GPIO.output(self.bits_gpio, gpio_values)
+        bits = [(number >> i) & 1 for i in range(len(self.bits_gpio))]
+        GPIO.output(self.bits_gpio, list(reversed(bits)))
 
         if self.verbose:
             print(f"DAC <= {number}")
@@ -42,29 +34,20 @@ class R2R_ADC:
     def sequential_counting_adc(self):
         max_code = (1 << len(self.bits_gpio)) - 1
 
-        for number in range(max_code + 1):
-            self.number_to_dac(number)
+        for code in range(max_code + 1):
+
+            self.number_to_dac(code)
             time.sleep(self.compare_time)
 
+           
             if GPIO.input(self.comp_gpio) == 1:
-                return number
+                return code
 
         return max_code
 
-  
-    def calibrate_two_point(self, code1, voltage1, code2, voltage2):
-        if code2 == code1:
-            return
-
-        self.scale = (voltage2 - voltage1) / (code2 - code1)
-        self.offset = voltage1 - self.scale * code1
-
-   
+    
     def get_sc_voltage(self):
         code = self.sequential_counting_adc()
-
-        if self.scale is not None and self.offset is not None:
-            return self.scale * code + self.offset
 
         max_code = (1 << len(self.bits_gpio)) - 1
         return (code / max_code) * self.dynamic_range
@@ -72,11 +55,11 @@ class R2R_ADC:
 
 if __name__ == "__main__":
     try:
-        adc = R2R_ADC(dynamic_range=3.3)
+        adc = R2R_ADC(dynamic_range=2.73)
 
         while True:
-            voltage = adc.get_sc_voltage()
-            print(f"Measured voltage: {voltage:.3f} V")
+            print(f"{adc.get_sc_voltage():.3f} V")
+            time.sleep(0.1)
 
     finally:
-        del adc
+        GPIO.cleanup()
